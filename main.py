@@ -23,7 +23,7 @@ menu = [
 reply_markup = ReplyKeyboardMarkup(menu)
 
 guide_sections = [
-    "*Section 1*\nThis is the first section of the guide.",
+    "*Section 1*\nStyles:<hewlett>, <80s-anime-AI>, (_kuvshinov:1), <roy-lichtenstein>  .",
     "*Section 2*\nThis is the second section of the guide.",
     "*Section 3*\nThis is the third section of the guide.",
 ]
@@ -68,7 +68,7 @@ inline_menu_quality = [
 
 
 inline_menu_res = [
-    [InlineKeyboardButton("Set to 768x512", callback_data='vertical'), InlineKeyboardButton("Set to 512x768", callback_data='horizontal')],
+    [InlineKeyboardButton("Set to 768x512", callback_data='horizontal'), InlineKeyboardButton("Set to 512x768", callback_data='vertical')],
     [InlineKeyboardButton("Set to 768x768", callback_data='square')]
 ]
 
@@ -93,6 +93,11 @@ inline_menu_generate = [
 ]
 
 
+inline_menu_embedding = [
+    [InlineKeyboardButton("Realistic", callback_data='realisticvision-negative-embedding'), InlineKeyboardButton("Anime", callback_data='anime-style-negative-embedding,easynegative')],
+    [InlineKeyboardButton("Default", callback_data='easynegative, verybadimagenegative_v1.3'), InlineKeyboardButton("Overall quality", callback_data='ng_deepnegative_v1_75t')]
+]
+
 
 inline_menu_cfg = [
     [InlineKeyboardButton("Set to 6", callback_data='cfg_6'), InlineKeyboardButton("Set to 6.5", callback_data='cfg_6.5')],
@@ -115,6 +120,9 @@ inline_reply_markup_upscaler = InlineKeyboardMarkup(inline_menu_upscaler)
 inline_reply_markup_upscale_to = InlineKeyboardMarkup(inline_menu_upscale_to)
 inline_reply_markup_model = InlineKeyboardMarkup(inline_menu_model)
 inline_reply_markup_generate = InlineKeyboardMarkup(inline_menu_generate)
+inline_reply_markup_embedding = InlineKeyboardMarkup(inline_menu_embedding)
+
+
 
 
 
@@ -172,7 +180,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif update.message.text == "Generate!":
         context.user_data['user_prompt'] = True
-        await update.message.reply_text('Please type your prompt....')
+        await update.message.reply_text('Choose negative prompt, Then please type your prompt....', reply_markup=inline_reply_markup_embedding)
 
     else:
         await update.message.reply_text(update.message.text)
@@ -226,7 +234,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if query.data == 'rea':
             context.user_data['upscaler'] = "R-ESRGAN 4x+ Anime6B"
         elif query.data == 're':
-            context.user_data['upscaler'] = "ESRGAN 4x"
+            context.user_data['upscaler'] = "ESRGAN_4x"
         await query.answer(f"You've selected {query.data}.")
         return
 
@@ -257,6 +265,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.answer(f"You've selected {query.data}.")
         return
 
+    elif query.data in ['realisticvision-negative-embedding', 'anime-style-negative-embedding,easynegative', 'easynegative, verybadimagenegative_v1.3', 'ng_deepnegative_v1_75t']:
+        context.user_data['negative_prompt'] = query.data
+        await query.answer(f"You've selected {query.data}.")
+        return
+
     elif query.data in ['Protogen_V2.2.safetensors', 'protogenInfinity.safetensors', 'absolutereality_v1.safetensors',
                         'dreamshaper.safetensors', 'comics.safetensors', 'AnyEvery.safetensors', 'mixrealSd21.safetensors']:
         context.user_data['model_name'] = query.data
@@ -274,7 +287,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     elif query.data == 'GENERATE':
-        await generate_imagea(query, context)
+        await generate_image(query, context)
         return
 
     await query.edit_message_text(
@@ -296,46 +309,23 @@ def prepare_model(context):
 def prepare_payload(context):
     user_data = context.user_data
     payload = {
-        "enable_hr": user_data.get("upscale_on", "false"),
         "prompt": user_data.get('prompt', "Dogs playing poker"),
         "seed": user_data.get('seed', -1),
+        "subseed_strength": 0.8,
         "batch_count": user_data.get('num_pic', 1),
-        "steps": user_data.get('quality', 50),
+        "steps": user_data.get('quality', 29),
         "cfg_scale": user_data.get('cfg', 7.5),
         "width": user_data.get('width', 768),
         "height": user_data.get('height', 512),
-        "negative_prompt": user_data.get('negative_prompt', "low resolution, bad anatomy, bad hands, text, "
-                                         "error, missing fingers, extra digit, fewer digits, cropped, worst quality, "
-                                         "low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry"),
+        "negative_prompt": user_data.get('negative_prompt', "easynegative"),
         "sampler_index": user_data.get('sampler', "Euler"),
         "send_images": "true",
         "save_images": "true",
-        "hr_upscaler": user_data.get("upscaler", "none"),
-        "hr_scale": user_data.get("upscale_to", 0)
     }
     return payload
 
 
-async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    payload = prepare_payload(context)
-    headers = {'accept': 'application/json'}
-    endpoint = f'{url}/sdapi/v1/txt2img'
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(endpoint, headers=headers, json=payload) as response:
-            if response.status == 200:
-                json_response = await response.json()
-                print(json_response)
-                image_data_base64 = json_response['images'][0]
-                image_data = base64.b64decode(image_data_base64)
-                image = Image.open(io.BytesIO(image_data))
-                image.save("generated_image.png")
-                with open("generated_image.png", 'rb') as file:
-                    await update.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
-            else:
-                await update.message.reply_text(f"Generation failed with status code {response.status}")
-
-async def generate_imagea(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def generate_image(reply_target, context: ContextTypes.DEFAULT_TYPE) -> None:
     payload = prepare_payload(context)
     headers = {'accept': 'application/json'}
     endpoint = f'{url}/sdapi/v1/txt2img'
@@ -345,14 +335,64 @@ async def generate_imagea(query: CallbackQuery, context: ContextTypes.DEFAULT_TY
             if response.status == 200:
                 json_response = await response.json()
                 image_data_base64 = json_response['images'][0]
+                context.user_data['image_data_base64'] = image_data_base64
                 image_data = base64.b64decode(image_data_base64)
                 image = Image.open(io.BytesIO(image_data))
                 image.save("generated_image.png")
-                with open("generated_image.png", 'rb') as file:
-                    await query.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+                if context.user_data.get('upscale_on') == "true":
+                    await upscale_image(reply_target, context)
+                else:
+                    with open("generated_image.png", 'rb') as file:
+                        if isinstance(reply_target, Update):
+                            await reply_target.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+                        elif isinstance(reply_target, CallbackQuery):
+                            await reply_target.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
             else:
-                await query.message.reply_text(f"Generation failed with status code {response.status}")
+                if isinstance(reply_target, Update):
+                    await reply_target.message.reply_text(f"Generation failed with status code {response.status}")
+                elif isinstance(reply_target, CallbackQuery):
+                    await reply_target.message.reply_text(f"Generation failed with status code {response.status}")
 
+
+def prepare_upscale_payload(context):
+    user_data = context.user_data
+    image_data_base64 = user_data.get('image_data_base64')
+    payload = {
+        "resize_mode": 0,
+        "upscaling_resize": user_data.get('upscale_to'),
+        "upscaler_1": user_data.get('upscaler'),
+        "upscaler_2": "None",
+        "extras_upscaler_2_visibility": 0,
+        "upscale_first": True,
+        "image": image_data_base64
+    }
+    return payload
+
+
+async def upscale_image(reply_target, context: ContextTypes.DEFAULT_TYPE) -> None:
+    payload = prepare_upscale_payload(context)
+    headers = {'accept': 'application/json'}
+    endpoint = f'{url}/sdapi/v1/extra-single-image'
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(endpoint, headers=headers, json=payload) as response:
+            if response.status == 200:
+                json_response = await response.json()
+
+                upscaled_image_data_base64 = json_response['image']
+                upscaled_image_data = base64.b64decode(upscaled_image_data_base64)
+                image = Image.open(io.BytesIO(upscaled_image_data))
+                image.save("upscaled_image.png")
+                with open("upscaled_image.png", 'rb') as file:
+                    if isinstance(reply_target, Update):
+                        await reply_target.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+                    elif isinstance(reply_target, CallbackQuery):
+                        await reply_target.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+            else:
+                if isinstance(reply_target, Update):
+                    await reply_target.message.reply_text(f"Upscaling failed with status code {response.status}")
+                elif isinstance(reply_target, CallbackQuery):
+                    await reply_target.message.reply_text(f"Upscaling failed with status code {response.status}")
 
 
 app = ApplicationBuilder().token(bot_token).build()
