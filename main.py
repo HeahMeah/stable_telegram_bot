@@ -1,9 +1,15 @@
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import aiohttp
+import base64
+import io
+from PIL import Image
+
 
 url = "http://127.0.0.1:7860"
 bot_token = ""
+
+
 
 menu = [
     ["Generate!"],
@@ -12,7 +18,7 @@ menu = [
     ["Resolution / Разрешение", "Number of pictures / Кол-во изображений"],
     ["Upscaler", "Upscale to"],
     ["CFG scale", "Seed"],
-    ["Examples / Примеры"],
+    ["Models"],
 ]
 reply_markup = ReplyKeyboardMarkup(menu)
 
@@ -31,7 +37,7 @@ def create_menu(index):
         menu.append(InlineKeyboardButton("Previous", callback_data=str(PREVIOUS)))
     if index < len(guide_sections) - 1:
         menu.append(InlineKeyboardButton("Next", callback_data=str(NEXT)))
-    if index == len(guide_sections) -1:
+    if index == len(guide_sections) - 1:
         menu.append(InlineKeyboardButton("End Guide", callback_data='END_GUIDE'))
     return InlineKeyboardMarkup([menu])
 
@@ -40,6 +46,15 @@ inline_menu_sampler = [
     [InlineKeyboardButton("Euler", callback_data='Euler'), InlineKeyboardButton("DPM2 Karras", callback_data='DPM2 Karras')],
     [InlineKeyboardButton("DPM ++2M Karras", callback_data='DPM ++2M Karras'), InlineKeyboardButton("DPM++ SDE Karras", callback_data='DPM++ SDE Karras')]
 ]
+
+inline_menu_model = [
+    [InlineKeyboardButton("ProtogenV2.2 by darkstorm2150", callback_data='Protogen_V2.2.safetensors'), InlineKeyboardButton("ProtogenInf by darkstorm2150", callback_data='protogenInfinity.safetensors')],
+    [InlineKeyboardButton("Realism by Lykon", callback_data='absolutereality_v1.safetensors'), InlineKeyboardButton("DreamShaper by Lykon", callback_data='dreamshaper.safetensors')],
+    [InlineKeyboardButton("Comics", callback_data='comics.safetensors'), InlineKeyboardButton("Anything & Everything", callback_data='AnyEvery.safetensors')],
+    [InlineKeyboardButton("Realism by Wick_J4", callback_data='mixrealSd21.safetensors')]
+]
+
+
 
 inline_menu_num_pic = [
     [InlineKeyboardButton("Set to 2", callback_data='2'), InlineKeyboardButton("Set to 4", callback_data='4')],
@@ -68,11 +83,15 @@ inline_menu_upscaler = [
     [InlineKeyboardButton("ESRGAN_4x", callback_data='re')]
 ]
 
-inline_menu_upscale_to =[
+inline_menu_upscale_to = [
     [InlineKeyboardButton("Upscale x1.3", callback_data='x1.3'), InlineKeyboardButton("Upscale x1.5", callback_data='x1.5')],
-    [InlineKeyboardButton("upscale x2", callback_data='x2')],
-
+    [InlineKeyboardButton("upscale x2", callback_data='x2')]
 ]
+
+inline_menu_generate = [
+    [InlineKeyboardButton("Again", callback_data='GENERATE')]
+]
+
 
 
 inline_menu_cfg = [
@@ -94,6 +113,9 @@ inline_reply_markup_num_pic = InlineKeyboardMarkup(inline_menu_num_pic)
 inline_reply_markup_sampler = InlineKeyboardMarkup(inline_menu_sampler)
 inline_reply_markup_upscaler = InlineKeyboardMarkup(inline_menu_upscaler)
 inline_reply_markup_upscale_to = InlineKeyboardMarkup(inline_menu_upscale_to)
+inline_reply_markup_model = InlineKeyboardMarkup(inline_menu_model)
+inline_reply_markup_generate = InlineKeyboardMarkup(inline_menu_generate)
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -136,22 +158,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif update.message.text == "Upscale to":
         await update.message.reply_text('Choose multiplier', reply_markup=inline_reply_markup_upscale_to)
 
+    elif update.message.text == "Models":
+        await update.message.reply_text('Choose model', reply_markup=inline_reply_markup_model)
+
     elif context.user_data.get('user_prompt', False):
-        context.user_data['prompt'] = update.message.text
+        prompt = update.message.text
+        context.user_data['prompt'] = prompt  # Save the prompt here
         context.user_data['user_prompt'] = False
 
         await update.message.reply_text("Generating....")
-
-        payload = prepare_payload(context)
-        headers = {'accept': 'application/json'}
-        endpoint = f'{url}/sdapi/v1/txt2img'
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    await update.message.reply_text("Generation successful!")
-                else:
-                    await update.message.reply_text(f"Generation failed with status code {response.status}")
+        await generate_image(update, context)
         return
 
     elif update.message.text == "Generate!":
@@ -167,7 +183,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     current_section = context.user_data.get('section', 0)
 
-    if query.data == str(NEXT) and current_section < len(guide_sections) -1:
+    if query.data == str(NEXT) and current_section < len(guide_sections) - 1:
         current_section += 1
     elif query.data == str(PREVIOUS) and current_section > 0:
         current_section -= 1
@@ -229,7 +245,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     elif query.data in ['return_prev', 'randomize']:
         if query.data == 'return_prev':
-            context.user_data['seed'] = "-1" #Should be finished now just random,heh
+            context.user_data['seed'] = "-1"  # Should be finished now just random,heh, need take seed and paste here
         elif query.data == 'randomize':
             context.user_data['seed'] = "-1"
         context.user_data['seed'] = query.data
@@ -241,17 +257,24 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.answer(f"You've selected {query.data}.")
         return
 
-    elif query.data == 'GENERATE':
-        payload = prepare_payload(context)
+    elif query.data in ['Protogen_V2.2.safetensors', 'protogenInfinity.safetensors', 'absolutereality_v1.safetensors',
+                        'dreamshaper.safetensors', 'comics.safetensors', 'AnyEvery.safetensors', 'mixrealSd21.safetensors']:
+        context.user_data['model_name'] = query.data
+        await query.answer(f"You've selected {query.data}.")
+        model = prepare_model(context)
         headers = {'accept': 'application/json'}
-        endpoint = f'{url}/sdapi/v1/txt2img'
+        model_endpoint = f'{url}/sdapi/v1/sd-models'
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, headers=headers, json=payload) as response:
+            async with session.post(model_endpoint, headers=headers, json=model) as response:
                 if response.status == 200:
-                    await update.message.reply_text("Generation successful!")
+                    await query.message.reply_text("Model is ready!")
                 else:
-                    await update.message.reply_text(f"Generation failed with status code {response.status}")
+                    await query.message.reply_text(f"Failed to prepare the model with status code {response.status}")
+        return
+
+    elif query.data == 'GENERATE':
+        await generate_imagea(query, context)
         return
 
     await query.edit_message_text(
@@ -260,6 +283,14 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=create_menu(current_section)
     )
     context.user_data['section'] = current_section
+
+
+def prepare_model(context):
+    user_data = context.user_data
+    model = {
+    "filename": user_data.get("model_name", "AnyEvery.safetensors")
+    }
+    return model
 
 
 def prepare_payload(context):
@@ -274,15 +305,54 @@ def prepare_payload(context):
         "width": user_data.get('width', 768),
         "height": user_data.get('height', 512),
         "negative_prompt": user_data.get('negative_prompt', "low resolution, bad anatomy, bad hands, text, "
-                                        "error, missing fingers, extra digit, fewer digits, cropped, worst quality, "
-                                        "low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry"),
+                                         "error, missing fingers, extra digit, fewer digits, cropped, worst quality, "
+                                         "low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry"),
         "sampler_index": user_data.get('sampler', "Euler"),
-        "send_images": user_data.get('send_images', "true"),
-        "save_images": user_data.get('save_images', "true"),
+        "send_images": "true",
+        "save_images": "true",
         "hr_upscaler": user_data.get("upscaler", "none"),
         "hr_scale": user_data.get("upscale_to", 0)
     }
     return payload
+
+
+async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    payload = prepare_payload(context)
+    headers = {'accept': 'application/json'}
+    endpoint = f'{url}/sdapi/v1/txt2img'
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(endpoint, headers=headers, json=payload) as response:
+            if response.status == 200:
+                json_response = await response.json()
+                print(json_response)
+                image_data_base64 = json_response['images'][0]
+                image_data = base64.b64decode(image_data_base64)
+                image = Image.open(io.BytesIO(image_data))
+                image.save("generated_image.png")
+                with open("generated_image.png", 'rb') as file:
+                    await update.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+            else:
+                await update.message.reply_text(f"Generation failed with status code {response.status}")
+
+async def generate_imagea(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE) -> None:
+    payload = prepare_payload(context)
+    headers = {'accept': 'application/json'}
+    endpoint = f'{url}/sdapi/v1/txt2img'
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(endpoint, headers=headers, json=payload) as response:
+            if response.status == 200:
+                json_response = await response.json()
+                image_data_base64 = json_response['images'][0]
+                image_data = base64.b64decode(image_data_base64)
+                image = Image.open(io.BytesIO(image_data))
+                image.save("generated_image.png")
+                with open("generated_image.png", 'rb') as file:
+                    await query.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+            else:
+                await query.message.reply_text(f"Generation failed with status code {response.status}")
+
 
 
 app = ApplicationBuilder().token(bot_token).build()
