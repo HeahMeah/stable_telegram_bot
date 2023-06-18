@@ -1,14 +1,18 @@
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import aiohttp
+import asyncio
 import base64
 import io
+import logging
 from PIL import Image
 
 
-url = "http://127.0.0.1:7860"
-bot_token = ""
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
+url = "http://127.0.0.1:7860"
+bot_token = "6063429082:AAGbr-dWr0HA3haBkswLDm2jE7tAG8jnEg8"
 
 
 menu = [
@@ -23,7 +27,7 @@ menu = [
 reply_markup = ReplyKeyboardMarkup(menu)
 
 guide_sections = [
-    "*Section 1*\nStyles:<hewlett>, <80s-anime-AI>, (_kuvshinov:1), <roy-lichtenstein>  .",
+    "*Section 1*\nStyles:hewlett, 80s-anime-AI, kuvshinov, roy-lichtenstein.",
     "*Section 2*\nThis is the second section of the guide.",
     "*Section 3*\nThis is the third section of the guide.",
 ]
@@ -44,7 +48,7 @@ def create_menu(index):
 
 inline_menu_sampler = [
     [InlineKeyboardButton("Euler", callback_data='Euler'), InlineKeyboardButton("DPM2 Karras", callback_data='DPM2 Karras')],
-    [InlineKeyboardButton("DPM ++2M Karras", callback_data='DPM ++2M Karras'), InlineKeyboardButton("DPM++ SDE Karras", callback_data='DPM++ SDE Karras')]
+    [InlineKeyboardButton("DPM++ 2M Karras", callback_data='DPM++ 2M Karras'), InlineKeyboardButton("DPM++ SDE Karras", callback_data='DPM++ SDE Karras')]
 ]
 
 inline_menu_model = [
@@ -53,8 +57,6 @@ inline_menu_model = [
     [InlineKeyboardButton("Comics", callback_data='comics.safetensors'), InlineKeyboardButton("Anything & Everything", callback_data='AnyEvery.safetensors')],
     [InlineKeyboardButton("Realism by Wick_J4", callback_data='mixrealSd21.safetensors')]
 ]
-
-
 
 inline_menu_num_pic = [
     [InlineKeyboardButton("Set to 2", callback_data='2'), InlineKeyboardButton("Set to 4", callback_data='4')],
@@ -66,7 +68,6 @@ inline_menu_quality = [
     [InlineKeyboardButton("Set to 50", callback_data='50'), InlineKeyboardButton("Set to 70", callback_data='70')]
 ]
 
-
 inline_menu_res = [
     [InlineKeyboardButton("Set to 768x512", callback_data='horizontal'), InlineKeyboardButton("Set to 512x768", callback_data='vertical')],
     [InlineKeyboardButton("Set to 768x768", callback_data='square')]
@@ -76,7 +77,6 @@ inline_menu_seed = [
     [InlineKeyboardButton("Randomize" + " 🎲", callback_data='randomize')],
     [InlineKeyboardButton("Return previous seed" + " ♻", callback_data='return_prev')]
 ]
-
 
 inline_menu_upscaler = [
     [InlineKeyboardButton("R-ESRGAN 4x+ Anime6B", callback_data='rea')],
@@ -92,22 +92,20 @@ inline_menu_generate = [
     [InlineKeyboardButton("Again", callback_data='GENERATE')]
 ]
 
-
 inline_menu_embedding = [
     [InlineKeyboardButton("Realistic", callback_data='realisticvision-negative-embedding'), InlineKeyboardButton("Anime", callback_data='anime-style-negative-embedding,easynegative')],
     [InlineKeyboardButton("Default", callback_data='easynegative, verybadimagenegative_v1.3'), InlineKeyboardButton("Overall quality", callback_data='ng_deepnegative_v1_75t')]
 ]
 
-
 inline_menu_cfg = [
-    [InlineKeyboardButton("Set to 6", callback_data='cfg_6'), InlineKeyboardButton("Set to 6.5", callback_data='cfg_6.5')],
-    [InlineKeyboardButton("Set to 7", callback_data='cfg_7'), InlineKeyboardButton("Set to 7.5", callback_data='cfg_7.5')],
-    [InlineKeyboardButton("Set to 8", callback_data='cfg_8'), InlineKeyboardButton("Set to 8.5", callback_data='cfg_8.5')],
-    [InlineKeyboardButton("Set to 9", callback_data='cfg_9'), InlineKeyboardButton("Set to 9.5", callback_data='cfg_9.5')],
-    [InlineKeyboardButton("Set to 10", callback_data='cfg_10'), InlineKeyboardButton("Set to 10.5", callback_data='cfg_10.5')],
-    [InlineKeyboardButton("Set to 11", callback_data='cfg_11'), InlineKeyboardButton("Set to 11.5", callback_data='cfg_11.5')],
-    [InlineKeyboardButton("Set to 12", callback_data='cfg_12'), InlineKeyboardButton("Set to 12.5", callback_data='cfg_12.5')],
-    [InlineKeyboardButton("Set to 13", callback_data='cfg_13')]
+    [InlineKeyboardButton("Set to 6", callback_data='6'), InlineKeyboardButton("Set to 6.5", callback_data='6.5')],
+    [InlineKeyboardButton("Set to 7", callback_data='7'), InlineKeyboardButton("Set to 7.5", callback_data='7.5')],
+    [InlineKeyboardButton("Set to 8", callback_data='8'), InlineKeyboardButton("Set to 8.5", callback_data='8.5')],
+    [InlineKeyboardButton("Set to 9", callback_data='9'), InlineKeyboardButton("Set to 9.5", callback_data='9.5')],
+    [InlineKeyboardButton("Set to 10", callback_data='10'), InlineKeyboardButton("Set to 10.5", callback_data='10.5')],
+    [InlineKeyboardButton("Set to 11", callback_data='11'), InlineKeyboardButton("Set to 11.5", callback_data='11.5')],
+    [InlineKeyboardButton("Set to 12", callback_data='12'), InlineKeyboardButton("Set to 12.5", callback_data='12.5')],
+    [InlineKeyboardButton("Set to 13", callback_data='13')]
 ]
 
 inline_reply_markup_quality = InlineKeyboardMarkup(inline_menu_quality)
@@ -123,9 +121,6 @@ inline_reply_markup_generate = InlineKeyboardMarkup(inline_menu_generate)
 inline_reply_markup_embedding = InlineKeyboardMarkup(inline_menu_embedding)
 
 
-
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f'Hello {update.effective_user.first_name}\n\n{guide_sections[0]}',
@@ -134,8 +129,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     context.user_data['section'] = 0
 
+image_ready = False
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_text = update.message.text
+
     if update.message.text == "Sampling steps / Качество":
         await update.message.reply_text('Choose strength of denoising', reply_markup=inline_reply_markup_quality)
     elif update.message.text == "Guide / Гайд":
@@ -173,17 +172,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         prompt = update.message.text
         context.user_data['prompt'] = prompt  # Save the prompt here
         context.user_data['user_prompt'] = False
-
-        await update.message.reply_text("Generating....")
         await generate_image(update, context)
         return
 
     elif update.message.text == "Generate!":
-        context.user_data['user_prompt'] = True
         await update.message.reply_text('Choose negative prompt, Then please type your prompt....', reply_markup=inline_reply_markup_embedding)
+        return
 
     else:
-        await update.message.reply_text(update.message.text)
+        context.user_data['prompt'] = user_text
+        await generate_image(update, context)
+        if 'message_id' in context.user_data:
+            await update_progress(update, context)
 
 
 # Callback query handler
@@ -201,13 +201,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=reply_markup
         )
         return
-    elif query.data in ['cfg_6', 'cfg_6.5', 'cfg_7', 'cfg_7.5', 'cfg_8', 'cfg_8.5', 'cfg_9', 'cfg_9.5',
-                        'cfg_10', 'cfg_10.5', 'cfg_11', 'cfg_11.5', 'cfg_12', 'cfg_12.5', 'cfg_13']:
+    elif query.data in ['6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5',
+                        '10', '10.5', '11', '11.5', '12', '12.5', '13']:
         context.user_data['cfg'] = query.data
         await query.answer(f"You've selected {query.data}.")
         return
 
-    elif query.data in ['Euler', 'DPM2 Karras', 'DPM ++2M Karras', 'DPM++ SDE Karras']:
+    elif query.data in ['Euler', 'DPM2 Karras', 'DPM++ 2M Karras', 'DPM++ SDE Karras']:
         context.user_data['sampler'] = query.data
         await query.answer(f"You've selected {query.data}.")
         return
@@ -288,6 +288,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     elif query.data == 'GENERATE':
         await generate_image(query, context)
+
+
         return
 
     await query.edit_message_text(
@@ -326,19 +328,33 @@ def prepare_payload(context):
 
 
 async def generate_image(reply_target, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.debug("generate_image function has been started")
+
+    message = await reply_target.message.reply_text("Generating....")
+    context.user_data['message_id'] = message.message_id
+    context.user_data['image_ready'] = False
+
+    update_progress_task = asyncio.create_task(update_progress(reply_target, context))
+
     payload = prepare_payload(context)
     headers = {'accept': 'application/json'}
     endpoint = f'{url}/sdapi/v1/txt2img'
 
     async with aiohttp.ClientSession() as session:
         async with session.post(endpoint, headers=headers, json=payload) as response:
+
+
             if response.status == 200:
+
                 json_response = await response.json()
                 image_data_base64 = json_response['images'][0]
                 context.user_data['image_data_base64'] = image_data_base64
                 image_data = base64.b64decode(image_data_base64)
                 image = Image.open(io.BytesIO(image_data))
                 image.save("generated_image.png")
+                context.user_data['image_ready'] = True
+
+
                 if context.user_data.get('upscale_on') == "true":
                     await upscale_image(reply_target, context)
                 else:
@@ -347,11 +363,15 @@ async def generate_image(reply_target, context: ContextTypes.DEFAULT_TYPE) -> No
                             await reply_target.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
                         elif isinstance(reply_target, CallbackQuery):
                             await reply_target.message.reply_photo(photo=file, reply_markup=inline_reply_markup_generate)
+                    await asyncio.sleep(1)
+                    await cleanup(reply_target, context, context.user_data['message_id'])
             else:
                 if isinstance(reply_target, Update):
                     await reply_target.message.reply_text(f"Generation failed with status code {response.status}")
+                    context.user_data['image_ready'] = True
                 elif isinstance(reply_target, CallbackQuery):
                     await reply_target.message.reply_text(f"Generation failed with status code {response.status}")
+                    context.user_data['image_ready'] = True
 
 
 def prepare_upscale_payload(context):
@@ -363,7 +383,7 @@ def prepare_upscale_payload(context):
         "upscaler_1": user_data.get('upscaler'),
         "upscaler_2": "None",
         "extras_upscaler_2_visibility": 0,
-        "upscale_first": True,
+        "upscale_first": False,
         "image": image_data_base64
     }
     return payload
@@ -393,6 +413,54 @@ async def upscale_image(reply_target, context: ContextTypes.DEFAULT_TYPE) -> Non
                     await reply_target.message.reply_text(f"Upscaling failed with status code {response.status}")
                 elif isinstance(reply_target, CallbackQuery):
                     await reply_target.message.reply_text(f"Upscaling failed with status code {response.status}")
+
+
+async def get_progress():
+    async with aiohttp.ClientSession() as session:
+        async with session.get('http://127.0.0.1:7860/sdapi/v1/progress?skip_current_image=false') as resp:
+            data = await resp.json()  # This will give you the JSON response as a Python dictionary
+            progress = data['progress']
+            eta_relative = data['eta_relative']
+            return progress, eta_relative
+
+
+async def update_progress(update, context):
+    logger.debug("update_progress function has been started")
+
+    message_id = context.user_data['message_id']
+
+    last_progress = 0
+    spinner_states = ['-', '\\', '|', '/']
+    spinner_index = 0
+    while not context.user_data.get('image_ready', False):
+        progress, eta_relative = await get_progress()
+        if progress != last_progress:
+            progress_percentage = int(progress * 100)
+            eta_minutes = int(eta_relative / 60)
+            eta_seconds = int(eta_relative % 60)
+            spinner_state = spinner_states[spinner_index % 4]
+            chat_id = update.message.chat.id if isinstance(update, Update) else update.message.chat.id
+
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"Generating...{spinner_state} ({progress_percentage}% complete, ETA: {eta_minutes}m {eta_seconds}s)"
+                )
+            except Exception as e:
+                print(f"Failed to update progress: {e}")
+
+            last_progress = progress
+            spinner_index += 1
+
+        await asyncio.sleep(0.5)
+
+
+async def cleanup(update, context, message_id):
+    try:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
+    except Exception as e:
+        print(f"Cleanup failed with error {e}")
 
 
 app = ApplicationBuilder().token(bot_token).build()
