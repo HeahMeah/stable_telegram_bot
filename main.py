@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
 url = "http://127.0.0.1:7860"
-bot_token = "6063429082:AAGbr-dWr0HA3haBkswLDm2jE7tAG8jnEg8"
+bot_token = ""
 
 
 menu = [
